@@ -18,7 +18,7 @@ public class ClientHandler implements InetNodeHandler, Closeable {
 
     private static final int NO_INTERESTED_OPTIONS = 0;
 
-    private final SocketChannel clientSocketChanel;
+    private final SocketChannel clientSocketChannel;
     private final SelectionKey clientSelectionKey;
 
     private ClientStatement clientState;
@@ -29,13 +29,15 @@ public class ClientHandler implements InetNodeHandler, Closeable {
     private String requiredHostName;
     private InetAddress requiredHostInetAddress;
     private int requiredHostPort;
+    private RemoteHostHandler remoteHostHandler;
 
     private boolean isActive;
 
     public ClientHandler(SelectionKey serverSocketSelectionKey) throws IOException {
-        this.clientSocketChanel = ((ServerSocketChannel) serverSocketSelectionKey.channel()).accept();
-        NonBlockingChanelServiceman.setNonBlockingConfigToChanel(clientSocketChanel);
-        this.clientSelectionKey = clientSocketChanel.register(serverSocketSelectionKey.selector(), SelectionKey.OP_READ);
+        this.clientSocketChannel = ((ServerSocketChannel) serverSocketSelectionKey.channel()).accept();
+        NonBlockingChannelServiceman.setNonBlock(clientSocketChannel);
+        this.clientSelectionKey = clientSocketChannel.register(
+                serverSocketSelectionKey.selector(), SelectionKey.OP_READ);
         this.clientState = ClientStatement.SENDING_OPTION;
         this.isActive = true;
     }
@@ -43,7 +45,7 @@ public class ClientHandler implements InetNodeHandler, Closeable {
     private void readClientInitialOption() {
         ByteBuffer byteBuffer = ByteBuffer.allocate(BYTE_BUFFER_DEFAULT_CAPACITY);
         try {
-            int readBytesNumber = this.clientSocketChanel.read(byteBuffer);
+            int readBytesNumber = this.clientSocketChannel.read(byteBuffer);
             if (isNoDataReadFromChanel(readBytesNumber)) {
                 this.close();
                 return;
@@ -59,9 +61,9 @@ public class ClientHandler implements InetNodeHandler, Closeable {
 
             if (isClientRequiresAuthentication(message)) {
                 logger.error("Client requires authentication in all passed methods");
-                authenticationMethod = Socks5MessagesExplorer.getNoAcceptableMethodsIndicator();
+                this.authenticationMethod = Socks5MessagesExplorer.getNoAcceptableMethodsIndicator();
             } else {
-                authenticationMethod = Socks5MessagesExplorer.getAuthenticationIsNotRequiredIndicator();
+                this.authenticationMethod = Socks5MessagesExplorer.getAuthenticationIsNotRequiredIndicator();
             }
             this.clientState = ClientStatement.READING_SELECTED_OPTION;
             this.clientSelectionKey.interestOps(SelectionKey.OP_WRITE);
@@ -93,7 +95,7 @@ public class ClientHandler implements InetNodeHandler, Closeable {
                 this.authenticationMethod
         });
         try {
-            this.clientSocketChanel.write(message);
+            this.clientSocketChannel.write(message);
             this.clientState = ClientStatement.SENDING_REQUEST;
             this.clientSelectionKey.interestOps(SelectionKey.OP_READ);
         } catch (IOException exception) {
@@ -104,7 +106,7 @@ public class ClientHandler implements InetNodeHandler, Closeable {
     private void readClientRequestDetails() {
         ByteBuffer byteBuffer = ByteBuffer.allocate(16 * BYTE_BUFFER_DEFAULT_CAPACITY);
         try {
-            int readBytesNumber = this.clientSocketChanel.read(byteBuffer);
+            int readBytesNumber = this.clientSocketChannel.read(byteBuffer);
             if (isNoDataReadFromChanel(readBytesNumber)) {
                 this.close();
                 return;
@@ -134,7 +136,7 @@ public class ClientHandler implements InetNodeHandler, Closeable {
                     byte[] requiredHostIPv4Bytes = Socks5MessagesExplorer.getRemoteHostIPv4AddressFromMessage(message);
                     this.requiredHostInetAddress = InetAddress.getByAddress(requiredHostIPv4Bytes);
                     this.requiredHostName = this.requiredHostInetAddress.getHostAddress();
-                    // TODO: init host handler
+                    this.initCorrespondingRemoteHostHandler();
                     this.clientState = ClientStatement.WAITING_REMOTE_HOST;
                     this.clientSelectionKey.interestOps(NO_INTERESTED_OPTIONS);
                 }
@@ -148,7 +150,11 @@ public class ClientHandler implements InetNodeHandler, Closeable {
                 case DOMAIN_NAME -> {
                     this.requiredHostName = Socks5MessagesExplorer.getDomainNameFromMessage(message);
                     logger.info("Remote host has name {" + requiredHostName + "}");
-                    // TODO: DNS Resolver
+                    DNSRequest dnsRequest = DNSRequest.builder()
+                            .correspondingClientHandler(this)
+                            .requiredRemoteHostname(requiredHostName)
+                            .build();
+                    DNSResolver.getInstance().addDNSRequestToQueue(dnsRequest);
                     this.clientState = ClientStatement.WAITING_DNS_RESOLVER;
                     this.clientSelectionKey.interestOps(NO_INTERESTED_OPTIONS);
                 }
@@ -162,11 +168,22 @@ public class ClientHandler implements InetNodeHandler, Closeable {
         }
     }
 
+    private void initCorrespondingRemoteHostHandler() {
+        try {
+            this.remoteHostHandler = new RemoteHostHandler(this,
+                    this.requiredHostInetAddress,
+                    this.requiredHostPort);
+        } catch (IOException exception) {
+            logger.error(exception.getMessage());
+            this.close();
+        }
+    }
+
     private void writeProxyAnswerToClient() {
         // TODO; использовать данный метод и для отправки последующих сообщений клиенту (не только ответ на первый запрос)
         ByteBuffer message = ByteBuffer.wrap(this.getDummyAnswerWithSpecifiedResponseType());
         try {
-            this.clientSocketChanel.write(message);
+            this.clientSocketChannel.write(message);
             logger.info("Proxy answer was sent to the client. Answer is {" + Arrays.toString(message.array()) + "}");
             if (Socks5MessagesExplorer.isResponseTypeSucceeded(this.serverResponseType)) {
                 this.clientState = ClientStatement.CONTINUE_STAY_CONNECT;
@@ -208,7 +225,7 @@ public class ClientHandler implements InetNodeHandler, Closeable {
     private void readClientMessage() {
         ByteBuffer byteBuffer = ByteBuffer.allocate(16 * BYTE_BUFFER_DEFAULT_CAPACITY);
         try {
-            int readBytesNumber = this.clientSocketChanel.read(byteBuffer);
+            int readBytesNumber = this.clientSocketChannel.read(byteBuffer);
             if (isNoDataReadFromChanel(readBytesNumber)) {
                 this.close();
                 return;
@@ -233,7 +250,7 @@ public class ClientHandler implements InetNodeHandler, Closeable {
         return isActive;
     }
 
-    public Selector getAssociatingWithClientChanelSelector() {
+    public Selector getAssociatingWithClientChannelSelector() {
         return clientSelectionKey.selector();
     }
 
@@ -255,7 +272,7 @@ public class ClientHandler implements InetNodeHandler, Closeable {
     public void close() {
         clientSelectionKey.cancel();
         try {
-            clientSocketChanel.close();
+            clientSocketChannel.close();
         } catch (IOException exception) {
             logger.error(exception.getMessage());
         }

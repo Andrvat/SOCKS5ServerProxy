@@ -14,7 +14,7 @@ public class RemoteHostHandler implements InetNodeHandler, Closeable {
 
     private static final int BYTE_BUFFER_DEFAULT_CAPACITY = 8192;
 
-    private final SocketChannel remoteHostSocketChanel;
+    private final SocketChannel remoteHostSocketChannel;
     private final SelectionKey remoteHostSelectionKey;
 
     private final ClientHandler associatingClientHandler;
@@ -27,22 +27,22 @@ public class RemoteHostHandler implements InetNodeHandler, Closeable {
     public RemoteHostHandler(ClientHandler clientHandler, InetAddress hostAddress, int hostPort)
             throws IOException {
         this.associatingClientHandler = clientHandler;
-        this.remoteHostSocketChanel = SocketChannel.open();
-        NonBlockingChanelServiceman.setNonBlockingConfigToChanel(remoteHostSocketChanel);
+        this.remoteHostSocketChannel = SocketChannel.open();
+        NonBlockingChannelServiceman.setNonBlock(remoteHostSocketChannel);
         logger.info("Start connecting to remote host " +
                 "with address + {" + hostAddress.getHostAddress() + "} and " +
                 "port {" + hostPort + "}");
-        this.remoteHostSocketChanel.connect(new InetSocketAddress(hostAddress, hostPort));
+        this.remoteHostSocketChannel.connect(new InetSocketAddress(hostAddress, hostPort));
         // TODO: добавление в прокси-сервер в селект этот канал
-        this.remoteHostSelectionKey = this.remoteHostSocketChanel.register(
-                clientHandler.getAssociatingWithClientChanelSelector(),
+        this.remoteHostSelectionKey = this.remoteHostSocketChannel.register(
+                clientHandler.getAssociatingWithClientChannelSelector(),
                 SelectionKey.OP_CONNECT
         );
     }
 
     private void connectToRemoteHost() {
         try {
-            this.remoteHostSocketChanel.finishConnect();
+            this.remoteHostSocketChannel.finishConnect();
             this.isActive = true;
             logger.info("Remote host connection has finished. Change options to OP_READ...");
             this.remoteHostSelectionKey.interestOps(SelectionKey.OP_READ); // TODO: ack?
@@ -59,8 +59,8 @@ public class RemoteHostHandler implements InetNodeHandler, Closeable {
 
     private void readRemoteHostAnswer() {
         try {
-            int readBytesNumber = this.remoteHostSocketChanel.read(responsesFromHostBuffer);
-            if (isNoDataTransferThroughChanel(readBytesNumber)) {
+            int readBytesNumber = this.remoteHostSocketChannel.read(responsesFromHostBuffer);
+            if (isNoDataTransferThroughChannel(readBytesNumber)) {
                 this.close();
                 return;
             }
@@ -74,8 +74,8 @@ public class RemoteHostHandler implements InetNodeHandler, Closeable {
     private void writeRequestToRemoteHost() {
         try {
             this.requestsToHostBuffer.flip();
-            int writeBytesNumber = this.remoteHostSocketChanel.write(requestsToHostBuffer);
-            if (isNoDataTransferThroughChanel(writeBytesNumber)) {
+            int writeBytesNumber = this.remoteHostSocketChannel.write(requestsToHostBuffer);
+            if (isNoDataTransferThroughChannel(writeBytesNumber)) {
                 this.close();
                 return;
             }
@@ -100,7 +100,7 @@ public class RemoteHostHandler implements InetNodeHandler, Closeable {
         this.close();
     }
 
-    private boolean isNoDataTransferThroughChanel(int readBytesNumber) {
+    private boolean isNoDataTransferThroughChannel(int readBytesNumber) {
         return readBytesNumber <= 0;
     }
 
@@ -124,8 +124,8 @@ public class RemoteHostHandler implements InetNodeHandler, Closeable {
         this.remoteHostSelectionKey.cancel();
         // TODO: удалить из селектора этот ключ
         try {
-            this.remoteHostSocketChanel.close();
-            logger.info("Remote host socket chanel was closed");
+            this.remoteHostSocketChannel.close();
+            logger.info("Remote host socket channel was closed");
         } catch (IOException exception) {
             logger.error(exception.getMessage());
         }
