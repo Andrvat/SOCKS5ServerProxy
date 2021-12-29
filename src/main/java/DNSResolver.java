@@ -9,11 +9,7 @@ import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
-import java.nio.channels.SocketChannel;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.NoSuchElementException;
-import java.util.Queue;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 
@@ -26,8 +22,6 @@ public class DNSResolver implements InetNodeHandler {
 
     private DatagramChannel dnsResolverDatagramChannel;
     private SelectionKey dnsResolverSelectionKey;
-
-    private ClientHandler associatingClientHandler;
 
     private final Queue<DNSRequest> requestsQueue = new ConcurrentLinkedDeque<>();
     private final Map<Name, ClientHandler> clientHandlersDnsResponses = new ConcurrentHashMap<>();
@@ -54,8 +48,9 @@ public class DNSResolver implements InetNodeHandler {
         this.dnsResolverDatagramChannel = DatagramChannel.open();
         this.dnsResolverDatagramChannel.socket().connect(dnsResolverInetSocketAddress);
         NonBlockingChannelServiceman.setNonBlock(dnsResolverDatagramChannel);
-        this.dnsResolverDatagramChannel.register(proxyServerSelector, NO_INTERESTED_OPTIONS);
-        // TODO: добавление в прокси-сервер в селект этот канал
+        this.dnsResolverSelectionKey = this.dnsResolverDatagramChannel.
+                register(proxyServerSelector, NO_INTERESTED_OPTIONS);
+        Socks5ProxyServer.getInstance().putInetNodeHandlerByItsChannel(this.dnsResolverDatagramChannel, this);
         logger.info("DNS Resolver has started,,,");
     }
 
@@ -68,7 +63,7 @@ public class DNSResolver implements InetNodeHandler {
     }
 
     @Override
-    public void handle() {
+    public void handleEvent() {
         if (this.dnsResolverSelectionKey.isReadable()) {
             this.readDnsRemoteResolverResponse();
         }
@@ -79,7 +74,34 @@ public class DNSResolver implements InetNodeHandler {
     }
 
     private void readDnsRemoteResolverResponse() {
-        // TODO: write this fun
+        this.dnsResponsesBuffer.clear();
+        int readBytesNumber;
+        try {
+            readBytesNumber = this.dnsResolverDatagramChannel.read(dnsResponsesBuffer);
+            if (isNoDataTransferThroughChannel(readBytesNumber)) {
+                logger.debug("No data read from dns resolver datagram channel");
+                return;
+            }
+            Message remoteResolverResponse = new Message(dnsResponsesBuffer);
+            Name resolvingHostname = remoteResolverResponse.getQuestion().getName();
+            List<Record> foundInetAddressRecords = remoteResolverResponse.getSection(Section.ANSWER);
+            if (!this.clientHandlersDnsResponses.containsKey(resolvingHostname)) {
+                logger.debug("No corresponding hostname in client handlers responses map");
+                return;
+            }
+            ClientHandler correspondingClientHandler = this.clientHandlersDnsResponses.get(resolvingHostname);
+            for (var foundRecord : foundInetAddressRecords) {
+                if (foundRecord.getType() == Type.A) {
+                    correspondingClientHandler.setRequiredHostInetAddress(
+                            ((ARecord) foundRecord).getAddress());
+                    return;
+                }
+            }
+            correspondingClientHandler.setRequiredHostInetAddress(null);
+            logger.warn("Required host inet address is null by dns resolver");
+        } catch (IOException exception) {
+            logger.error(exception.getMessage());
+        }
     }
 
     private void sendDnsRequestToRemoteResolver() {
@@ -98,17 +120,20 @@ public class DNSResolver implements InetNodeHandler {
         }
 
         try {
+            Name resolvingName = Name.fromString(requestToSent.getRequiredRemoteHostname(), Name.root);
+            this.clientHandlersDnsResponses.put(resolvingName, requestToSent.getCorrespondingClientHandler());
             Record dnsRecord = Record.newRecord(
-                    Name.fromString(requestToSent.getRequiredRemoteHostname(), Name.root),
+                    resolvingName,
                     Type.A,
                     DClass.IN);
             dnsMessage.addRecord(dnsRecord, Section.QUESTION);
             byte[] messageBytes = dnsMessage.toWire();
+            this.dnsRequestsBuffer.clear();
             this.dnsRequestsBuffer.put(messageBytes);
             this.dnsRequestsBuffer.flip();
             this.dnsResolverDatagramChannel.write(this.dnsRequestsBuffer);
             this.dnsResolverSelectionKey.interestOps(
-              this.dnsResolverSelectionKey.interestOps() | SelectionKey.OP_READ
+                    this.dnsResolverSelectionKey.interestOps() | SelectionKey.OP_READ
             );
         } catch (IOException exception) {
             logger.error(exception.getMessage());
@@ -117,5 +142,9 @@ public class DNSResolver implements InetNodeHandler {
 
     private void setRecursiveDesiredOption(Header requestHeader) {
         requestHeader.setFlag(Flags.RD);
+    }
+
+    private boolean isNoDataTransferThroughChannel(int readBytesNumber) {
+        return readBytesNumber <= 0;
     }
 }

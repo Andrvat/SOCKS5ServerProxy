@@ -1,3 +1,3 @@
 public interface InetNodeHandler {
-    void handle();
+    void handleEvent();
 }

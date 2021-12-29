@@ -46,7 +46,7 @@ public class ClientHandler implements InetNodeHandler, Closeable {
         ByteBuffer byteBuffer = ByteBuffer.allocate(BYTE_BUFFER_DEFAULT_CAPACITY);
         try {
             int readBytesNumber = this.clientSocketChannel.read(byteBuffer);
-            if (isNoDataReadFromChanel(readBytesNumber)) {
+            if (isNoDataTransferAcrossChannel(readBytesNumber)) {
                 this.close();
                 return;
             }
@@ -72,8 +72,8 @@ public class ClientHandler implements InetNodeHandler, Closeable {
         }
     }
 
-    private boolean isNoDataReadFromChanel(int readBytesNumber) {
-        return readBytesNumber <= 0;
+    private boolean isNoDataTransferAcrossChannel(int transferBytesNumber) {
+        return transferBytesNumber <= 0;
     }
 
     private boolean isClientRequiresAuthentication(byte[] message) {
@@ -107,7 +107,7 @@ public class ClientHandler implements InetNodeHandler, Closeable {
         ByteBuffer byteBuffer = ByteBuffer.allocate(16 * BYTE_BUFFER_DEFAULT_CAPACITY);
         try {
             int readBytesNumber = this.clientSocketChannel.read(byteBuffer);
-            if (isNoDataReadFromChanel(readBytesNumber)) {
+            if (isNoDataTransferAcrossChannel(readBytesNumber)) {
                 this.close();
                 return;
             }
@@ -180,7 +180,6 @@ public class ClientHandler implements InetNodeHandler, Closeable {
     }
 
     private void writeProxyAnswerToClient() {
-        // TODO; использовать данный метод и для отправки последующих сообщений клиенту (не только ответ на первый запрос)
         ByteBuffer message = ByteBuffer.wrap(this.getDummyAnswerWithSpecifiedResponseType());
         try {
             this.clientSocketChannel.write(message);
@@ -223,22 +222,46 @@ public class ClientHandler implements InetNodeHandler, Closeable {
     }
 
     private void readClientMessage() {
-        ByteBuffer byteBuffer = ByteBuffer.allocate(16 * BYTE_BUFFER_DEFAULT_CAPACITY);
         try {
-            int readBytesNumber = this.clientSocketChannel.read(byteBuffer);
-            if (isNoDataReadFromChanel(readBytesNumber)) {
+            ByteBuffer correspondingRemoteHostHandlerBuffer = this.remoteHostHandler.getRequestsToHostBuffer();
+            int readBytesNumber = this.clientSocketChannel.read(
+                    correspondingRemoteHostHandlerBuffer
+            );
+            if (isNoDataTransferAcrossChannel(readBytesNumber)) {
                 this.close();
                 return;
             }
-            // TODO: передать прочитанные байты от клиента к удаленному хосту
-            // TODO: поменять ожидающие события удаленного хоста на сохрание его ожидающих событий + ожидание записи (чтобы удаленному хосту передать байты от клиента)
+            logger.info("Client handler read " + readBytesNumber + " bytes from client");
+            this.remoteHostHandler.getRemoteHostSelectionKey().interestOps(
+                    this.remoteHostHandler.getRemoteHostSelectionKey().interestOps() | SelectionKey.OP_WRITE
+            );
         } catch (IOException exception) {
             this.handleException(exception);
         }
     }
 
     private void writeMessageToClient() {
-        // TODO: обработка записи данных от удаленного хоста
+        ByteBuffer correspondingRemoteHostHandlerBuffer = this.remoteHostHandler.getResponsesFromHostBuffer();
+        try {
+            int transferBytesNumber;
+            correspondingRemoteHostHandlerBuffer.flip();
+            transferBytesNumber = this.clientSocketChannel.write(correspondingRemoteHostHandlerBuffer);
+            if (isNoDataTransferAcrossChannel(transferBytesNumber)) {
+                this.close();
+                return;
+            }
+            logger.info("Client handler wrote " + transferBytesNumber + " bytes to client");
+            if (correspondingRemoteHostHandlerBuffer.remaining() != 0) {
+                correspondingRemoteHostHandlerBuffer.compact();
+                return;
+            }
+            correspondingRemoteHostHandlerBuffer.clear();
+            if (!this.remoteHostHandler.isActive()) {
+                this.close();
+            }
+        } catch (IOException exception) {
+            this.handleException(exception);
+        }
     }
 
     private void handleException(Exception exception) {
@@ -268,9 +291,25 @@ public class ClientHandler implements InetNodeHandler, Closeable {
         this.serverResponseType = serverResponseType;
     }
 
+    public void setRequiredHostInetAddress(InetAddress requiredHostInetAddress) {
+        if (this.clientState.equals(ClientStatement.WAITING_DNS_RESOLVER)) {
+            if (requiredHostInetAddress == null) {
+                logger.warn("Dns resolver sent to client handler null inet address");
+                this.serverResponseType = Socks5MessagesExplorer.getHostUnreachableIndicator();
+                this.informAboutResponseReadiness();
+            } else {
+                logger.info("Dns resolver sent inet address: " + requiredHostInetAddress);
+                this.requiredHostInetAddress = requiredHostInetAddress;
+                this.clientState = ClientStatement.WAITING_REMOTE_HOST;
+                this.initCorrespondingRemoteHostHandler();
+            }
+        }
+    }
+
     @Override
     public void close() {
         clientSelectionKey.cancel();
+        Socks5ProxyServer.getInstance().removeInetNodeHandlerByItsChannel(clientSocketChannel);
         try {
             clientSocketChannel.close();
         } catch (IOException exception) {
@@ -281,17 +320,14 @@ public class ClientHandler implements InetNodeHandler, Closeable {
     }
 
     @Override
-    public void handle() {
+    public void handleEvent() {
         switch (clientState) {
             case SENDING_OPTION -> this.readClientInitialOption();
             case READING_SELECTED_OPTION -> this.writeSelectedMethodToClient();
             case SENDING_REQUEST -> this.readClientRequestDetails();
-            case WAITING_DNS_RESOLVER -> {
-            }
-            case WAITING_REMOTE_HOST -> {
-            }
             case READING_PROXY_ANSWER -> this.writeProxyAnswerToClient();
             case CONTINUE_STAY_CONNECT -> this.communicateWithClient();
+            default -> logger.warn("Unexpected handling...");
         }
     }
 }

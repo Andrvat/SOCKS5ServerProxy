@@ -33,7 +33,7 @@ public class RemoteHostHandler implements InetNodeHandler, Closeable {
                 "with address + {" + hostAddress.getHostAddress() + "} and " +
                 "port {" + hostPort + "}");
         this.remoteHostSocketChannel.connect(new InetSocketAddress(hostAddress, hostPort));
-        // TODO: добавление в прокси-сервер в селект этот канал
+        Socks5ProxyServer.getInstance().putInetNodeHandlerByItsChannel(this.remoteHostSocketChannel, this);
         this.remoteHostSelectionKey = this.remoteHostSocketChannel.register(
                 clientHandler.getAssociatingWithClientChannelSelector(),
                 SelectionKey.OP_CONNECT
@@ -104,8 +104,20 @@ public class RemoteHostHandler implements InetNodeHandler, Closeable {
         return readBytesNumber <= 0;
     }
 
+    public ByteBuffer getRequestsToHostBuffer() {
+        return requestsToHostBuffer;
+    }
+
+    public ByteBuffer getResponsesFromHostBuffer() {
+        return responsesFromHostBuffer;
+    }
+
+    public SelectionKey getRemoteHostSelectionKey() {
+        return remoteHostSelectionKey;
+    }
+
     @Override
-    public void handle() {
+    public void handleEvent() {
         if (this.remoteHostSelectionKey.isConnectable()) {
             this.connectToRemoteHost();
             return;
@@ -119,10 +131,14 @@ public class RemoteHostHandler implements InetNodeHandler, Closeable {
         }
     }
 
+    public boolean isActive() {
+        return isActive;
+    }
+
     @Override
     public void close() {
         this.remoteHostSelectionKey.cancel();
-        // TODO: удалить из селектора этот ключ
+        Socks5ProxyServer.getInstance().removeInetNodeHandlerByItsChannel(this.remoteHostSocketChannel);
         try {
             this.remoteHostSocketChannel.close();
             logger.info("Remote host socket channel was closed");
