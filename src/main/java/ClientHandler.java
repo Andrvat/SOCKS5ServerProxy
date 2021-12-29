@@ -53,7 +53,7 @@ public class ClientHandler implements InetNodeHandler, Closeable {
             }
 
             byte[] message = Arrays.copyOfRange(byteBuffer.array(), 0, readBytesNumber);
-            logger.info("Start to handle client initial option. Option is {" + Arrays.toString(message) + "}");
+            logger.info("Start to handle client initial option. Option: " + Arrays.toString(message));
             if (Socks5MessagesExplorer.isNotSocksVersion5(message)) {
                 logger.error("Proxy server doesn't service no other SOCKS versions except the 5 ver.");
                 this.close();
@@ -113,7 +113,7 @@ public class ClientHandler implements InetNodeHandler, Closeable {
                 return;
             }
             byte[] message = Arrays.copyOfRange(byteBuffer.array(), 0, readBytesNumber);
-            logger.info("Start to handle client request details. Request is {" + Arrays.toString(message) + "}");
+            logger.info("Start to handle client request details. Request: " + Arrays.toString(message));
 
             if (Socks5MessagesExplorer.isNotSocksVersion5(message)) {
                 logger.error("Proxy server doesn't service no other SOCKS versions except the 5 ver.");
@@ -186,7 +186,7 @@ public class ClientHandler implements InetNodeHandler, Closeable {
         ByteBuffer message = ByteBuffer.wrap(this.getDummyAnswerWithSpecifiedResponseType());
         try {
             this.clientSocketChannel.write(message);
-            logger.info("Proxy answer was sent to the client. Answer is {" + Arrays.toString(message.array()) + "}");
+            logger.info("Proxy answer was sent to the client. Answer is " + Arrays.toString(message.array()));
             if (Socks5MessagesExplorer.isResponseTypeSucceeded(this.serverResponseType)) {
                 this.clientState = ClientStatement.CONTINUE_STAY_CONNECT;
                 this.clientSelectionKey.interestOps(SelectionKey.OP_READ);
@@ -216,12 +216,10 @@ public class ClientHandler implements InetNodeHandler, Closeable {
 
     private void communicateWithClient() {
         if (this.clientSelectionKey.isReadable()) {
-            logger.info("Read client message...");
             this.readClientMessage();
             return;
         }
         if (this.clientSelectionKey.isWritable()) {
-            logger.info("Write message to client...");
             this.writeMessageToClient();
         }
     }
@@ -236,7 +234,7 @@ public class ClientHandler implements InetNodeHandler, Closeable {
                 this.close();
                 return;
             }
-            logger.info("Client handler read " + readBytesNumber + " bytes from client");
+            logger.info("Client handler read {" + readBytesNumber + "} bytes from client");
             this.remoteHostHandler.getRemoteHostSelectionKey().interestOps(
                     this.remoteHostHandler.getRemoteHostSelectionKey().interestOps() | SelectionKey.OP_WRITE
             );
@@ -255,7 +253,7 @@ public class ClientHandler implements InetNodeHandler, Closeable {
                 this.close();
                 return;
             }
-            logger.info("Client handler wrote " + transferBytesNumber + " bytes to client");
+            logger.info("Client handler wrote {" + transferBytesNumber + "} bytes to client");
             if (correspondingRemoteHostHandlerBuffer.remaining() != 0) {
                 correspondingRemoteHostHandlerBuffer.compact();
                 return;
@@ -286,7 +284,7 @@ public class ClientHandler implements InetNodeHandler, Closeable {
     public void informAboutResponseReadiness() {
         this.clientState = ClientStatement.READING_PROXY_ANSWER;
         this.clientSelectionKey.interestOps(SelectionKey.OP_WRITE);
-        logger.info("Client was informed about remote host response readiness. Sending expected soon...");
+        logger.info("Client was informed about remote host response readiness");
     }
 
     public void informAboutHostDataOccurrence() {
@@ -321,7 +319,7 @@ public class ClientHandler implements InetNodeHandler, Closeable {
         } catch (IOException exception) {
             logger.error(exception.getMessage());
         }
-        logger.info(this.getClass().getSimpleName() + " of " + requiredHostName + " has finished its work");
+        logger.info(this.getClass().getSimpleName() + " of " + requiredHostName + " finished");
         isActive = false;
         if (this.remoteHostHandler != null) {
             if (this.remoteHostHandler.isActive()) {
@@ -332,7 +330,6 @@ public class ClientHandler implements InetNodeHandler, Closeable {
 
     @Override
     public void handleEvent() {
-        logger.info(this + ". Current client state before handling: " + clientState);
         switch (clientState) {
             case SENDING_OPTION -> this.readClientInitialOption();
             case READING_SELECTED_OPTION -> this.writeSelectedMethodToClient();

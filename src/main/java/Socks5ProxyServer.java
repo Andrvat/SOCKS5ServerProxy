@@ -18,9 +18,6 @@ public class Socks5ProxyServer {
     private static final String PROXY_SERVER_IPv4_ADDRESS = "127.0.0.1";
     private int proxyPort;
 
-    private ServerSocketChannel proxyServerSocketChannel;
-    private SelectionKey proxyServerSelectionKey;
-
     private Selector eventsSelector;
 
     private final Map<SelectableChannel, InetNodeHandler> inetNodeHandlersByTheirChannels = new ConcurrentHashMap<>();
@@ -50,11 +47,10 @@ public class Socks5ProxyServer {
 
     private void configureProxyServer() throws IOException {
         this.eventsSelector = SelectorProvider.provider().openSelector();
-        this.proxyServerSocketChannel = ServerSocketChannel.open();
+        ServerSocketChannel proxyServerSocketChannel = ServerSocketChannel.open();
         NonBlockingChannelServiceman.setNonBlock(proxyServerSocketChannel);
-        this.proxyServerSocketChannel.bind(new InetSocketAddress(PROXY_SERVER_IPv4_ADDRESS, this.proxyPort));
-        this.proxyServerSelectionKey = this.proxyServerSocketChannel.
-                register(this.eventsSelector, SelectionKey.OP_ACCEPT);
+        proxyServerSocketChannel.bind(new InetSocketAddress(PROXY_SERVER_IPv4_ADDRESS, this.proxyPort));
+        proxyServerSocketChannel.register(this.eventsSelector, SelectionKey.OP_ACCEPT);
         DNSResolver.getInstance().startResolving(this.eventsSelector);
     }
 

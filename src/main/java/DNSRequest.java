@@ -12,4 +12,11 @@ public class DNSRequest {
     public String getRequiredRemoteHostname() {
         return requiredRemoteHostname;
     }
+
+    @Override
+    public String toString() {
+        return "DNSRequest{" +
+                "requiredRemoteHostname='" + requiredRemoteHostname + '\'' +
+                '}';
+    }
 }

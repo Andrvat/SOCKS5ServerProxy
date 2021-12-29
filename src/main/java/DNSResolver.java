@@ -56,7 +56,7 @@ public class DNSResolver implements InetNodeHandler {
         this.dnsResolverSelectionKey.interestOps(
                 this.dnsResolverSelectionKey.interestOps() | SelectionKey.OP_WRITE
         );
-        logger.info("New DNS request " + request);
+        logger.info("Added new dns request: " + request);
     }
 
     @Override
@@ -76,7 +76,7 @@ public class DNSResolver implements InetNodeHandler {
         try {
             readBytesNumber = this.dnsResolverDatagramChannel.read(dnsResponsesBuffer);
             if (isNoDataTransferThroughChannel(readBytesNumber)) {
-                logger.debug("No data read from dns resolver datagram channel");
+                logger.warn("No data read from dns resolver datagram channel");
                 return;
             }
             Message remoteResolverResponse = new Message(dnsResponsesBuffer.array());
@@ -95,7 +95,6 @@ public class DNSResolver implements InetNodeHandler {
                 }
             }
             correspondingClientHandler.setRequiredHostInetAddress(null);
-            logger.warn("Required host inet address is null by dns resolver");
         } catch (IOException exception) {
             logger.error(exception.getMessage());
         }
@@ -128,7 +127,7 @@ public class DNSResolver implements InetNodeHandler {
             byte[] messageBytes = dnsMessage.toWire();
             dnsRequestsBuffer.put(messageBytes);
             dnsRequestsBuffer.flip();
-            logger.info("Sending dns request...");
+            logger.info("Sending dns request: " + requestToSent);
             this.dnsResolverDatagramChannel.write(dnsRequestsBuffer);
             this.dnsResolverSelectionKey.interestOps(
                     this.dnsResolverSelectionKey.interestOps() | SelectionKey.OP_READ
