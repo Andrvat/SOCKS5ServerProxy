@@ -1,6 +1,8 @@
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
+import java.util.Arrays;
+
 public class ProxyServerStarter {
     private static final Logger logger = LogManager.getLogger(ProxyServerStarter.class);
 
@@ -12,6 +14,7 @@ public class ProxyServerStarter {
             Socks5ProxyServer.getInstance().start(cmdArgsParser.getProxyServerPort());
         } catch (Exception exception) {
             logger.error(exception.getMessage());
+            exception.printStackTrace();
         }
     }
 }

@@ -23,13 +23,8 @@ public class DNSResolver implements InetNodeHandler {
     private DatagramChannel dnsResolverDatagramChannel;
     private SelectionKey dnsResolverSelectionKey;
 
-    private final Queue<DNSRequest> requestsQueue = new ConcurrentLinkedDeque<>();
-    private final Map<Name, ClientHandler> clientHandlersDnsResponses = new ConcurrentHashMap<>();
-
-    private final ByteBuffer dnsRequestsBuffer = ByteBuffer.allocate(BYTE_BUFFER_DEFAULT_CAPACITY);
-    private final ByteBuffer dnsResponsesBuffer = ByteBuffer.allocate(BYTE_BUFFER_DEFAULT_CAPACITY);
-
-    private boolean isActive;
+    private Queue<DNSRequest> requestsQueue;
+    private Map<Name, ClientHandler> clientHandlersDnsResponses;
 
     private static DNSResolver instance;
 
@@ -51,6 +46,8 @@ public class DNSResolver implements InetNodeHandler {
         this.dnsResolverSelectionKey = this.dnsResolverDatagramChannel.
                 register(proxyServerSelector, NO_INTERESTED_OPTIONS);
         Socks5ProxyServer.getInstance().putInetNodeHandlerByItsChannel(this.dnsResolverDatagramChannel, this);
+        requestsQueue = new ConcurrentLinkedDeque<>();
+        clientHandlersDnsResponses = new ConcurrentHashMap<>();
         logger.info("DNS Resolver has started,,,");
     }
 
@@ -74,7 +71,7 @@ public class DNSResolver implements InetNodeHandler {
     }
 
     private void readDnsRemoteResolverResponse() {
-        this.dnsResponsesBuffer.clear();
+        ByteBuffer dnsResponsesBuffer = ByteBuffer.allocate(BYTE_BUFFER_DEFAULT_CAPACITY);
         int readBytesNumber;
         try {
             readBytesNumber = this.dnsResolverDatagramChannel.read(dnsResponsesBuffer);
@@ -82,7 +79,7 @@ public class DNSResolver implements InetNodeHandler {
                 logger.debug("No data read from dns resolver datagram channel");
                 return;
             }
-            Message remoteResolverResponse = new Message(dnsResponsesBuffer);
+            Message remoteResolverResponse = new Message(dnsResponsesBuffer.array());
             Name resolvingHostname = remoteResolverResponse.getQuestion().getName();
             List<Record> foundInetAddressRecords = remoteResolverResponse.getSection(Section.ANSWER);
             if (!this.clientHandlersDnsResponses.containsKey(resolvingHostname)) {
@@ -127,14 +124,18 @@ public class DNSResolver implements InetNodeHandler {
                     Type.A,
                     DClass.IN);
             dnsMessage.addRecord(dnsRecord, Section.QUESTION);
+            ByteBuffer dnsRequestsBuffer = ByteBuffer.allocate(BYTE_BUFFER_DEFAULT_CAPACITY);
             byte[] messageBytes = dnsMessage.toWire();
-            this.dnsRequestsBuffer.clear();
-            this.dnsRequestsBuffer.put(messageBytes);
-            this.dnsRequestsBuffer.flip();
-            this.dnsResolverDatagramChannel.write(this.dnsRequestsBuffer);
+            dnsRequestsBuffer.put(messageBytes);
+            dnsRequestsBuffer.flip();
+            logger.info("Sending dns request...");
+            this.dnsResolverDatagramChannel.write(dnsRequestsBuffer);
             this.dnsResolverSelectionKey.interestOps(
                     this.dnsResolverSelectionKey.interestOps() | SelectionKey.OP_READ
             );
+            if (this.requestsQueue.isEmpty()) {
+                this.dnsResolverSelectionKey.interestOps(SelectionKey.OP_READ);
+            }
         } catch (IOException exception) {
             logger.error(exception.getMessage());
         }

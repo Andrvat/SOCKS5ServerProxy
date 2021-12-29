@@ -36,6 +36,7 @@ public class ClientHandler implements InetNodeHandler, Closeable {
     public ClientHandler(SelectionKey serverSocketSelectionKey) throws IOException {
         this.clientSocketChannel = ((ServerSocketChannel) serverSocketSelectionKey.channel()).accept();
         NonBlockingChannelServiceman.setNonBlock(clientSocketChannel);
+        Socks5ProxyServer.getInstance().putInetNodeHandlerByItsChannel(this.clientSocketChannel, this);
         this.clientSelectionKey = clientSocketChannel.register(
                 serverSocketSelectionKey.selector(), SelectionKey.OP_READ);
         this.clientState = ClientStatement.SENDING_OPTION;
@@ -130,6 +131,8 @@ public class ClientHandler implements InetNodeHandler, Closeable {
                 return;
             }
 
+            this.requiredHostPort = ByteBuffer.wrap(Arrays.copyOfRange(message, readBytesNumber - 2, readBytesNumber)).getShort();
+
             byte inetAddressTypeCode = Socks5MessagesExplorer.getInetAddressTypeFromMessage(message);
             switch (RemoteHostAddressType.getTypeByCode(inetAddressTypeCode)) {
                 case IPv4 -> {
@@ -213,10 +216,12 @@ public class ClientHandler implements InetNodeHandler, Closeable {
 
     private void communicateWithClient() {
         if (this.clientSelectionKey.isReadable()) {
+            logger.info("Read client message...");
             this.readClientMessage();
             return;
         }
         if (this.clientSelectionKey.isWritable()) {
+            logger.info("Write message to client...");
             this.writeMessageToClient();
         }
     }
@@ -256,6 +261,7 @@ public class ClientHandler implements InetNodeHandler, Closeable {
                 return;
             }
             correspondingRemoteHostHandlerBuffer.clear();
+            this.clientSelectionKey.interestOps(SelectionKey.OP_READ);
             if (!this.remoteHostHandler.isActive()) {
                 this.close();
             }
@@ -309,7 +315,7 @@ public class ClientHandler implements InetNodeHandler, Closeable {
     @Override
     public void close() {
         clientSelectionKey.cancel();
-        Socks5ProxyServer.getInstance().removeInetNodeHandlerByItsChannel(clientSocketChannel);
+        Socks5ProxyServer.getInstance().removeInetNodeHandlerByItsChannel(this.clientSocketChannel);
         try {
             clientSocketChannel.close();
         } catch (IOException exception) {
@@ -317,10 +323,16 @@ public class ClientHandler implements InetNodeHandler, Closeable {
         }
         logger.info(this.getClass().getSimpleName() + " of " + requiredHostName + " has finished its work");
         isActive = false;
+        if (this.remoteHostHandler != null) {
+            if (this.remoteHostHandler.isActive()) {
+                this.remoteHostHandler.close();
+            }
+        }
     }
 
     @Override
     public void handleEvent() {
+        logger.info(this + ". Current client state before handling: " + clientState);
         switch (clientState) {
             case SENDING_OPTION -> this.readClientInitialOption();
             case READING_SELECTED_OPTION -> this.writeSelectedMethodToClient();
