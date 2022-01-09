@@ -14,18 +14,24 @@ public class RemoteHostHandler implements InetNodeHandler, Closeable {
 
     private static final int BYTE_BUFFER_DEFAULT_CAPACITY = 8192;
 
+    private static final int NO_INTERESTED_OPTIONS = 0;
+
     private final SocketChannel remoteHostSocketChannel;
     private final SelectionKey remoteHostSelectionKey;
 
     private final ClientHandler associatingClientHandler;
+
+    private final Socks5ProxyServer associatingProxyServer;
 
     private final ByteBuffer requestsToHostBuffer = ByteBuffer.allocate(BYTE_BUFFER_DEFAULT_CAPACITY);
     private final ByteBuffer responsesFromHostBuffer = ByteBuffer.allocate(BYTE_BUFFER_DEFAULT_CAPACITY);
 
     private boolean isActive;
 
-    public RemoteHostHandler(ClientHandler clientHandler, InetAddress hostAddress, int hostPort)
+    public RemoteHostHandler(ClientHandler clientHandler, InetAddress hostAddress, int hostPort,
+                             Socks5ProxyServer proxyServer)
             throws IOException {
+        this.associatingProxyServer = proxyServer;
         this.associatingClientHandler = clientHandler;
         this.remoteHostSocketChannel = SocketChannel.open();
         NonBlockingChannelServiceman.setNonBlock(remoteHostSocketChannel);
@@ -33,7 +39,7 @@ public class RemoteHostHandler implements InetNodeHandler, Closeable {
                 "with address + {" + hostAddress.getHostAddress() + "} and " +
                 "port {" + hostPort + "}");
         this.remoteHostSocketChannel.connect(new InetSocketAddress(hostAddress, hostPort));
-        Socks5ProxyServer.getInstance().putInetNodeHandlerByItsChannel(this.remoteHostSocketChannel, this);
+        this.associatingProxyServer.putInetNodeHandlerByItsChannel(this.remoteHostSocketChannel, this);
         this.remoteHostSelectionKey = this.remoteHostSocketChannel.register(
                 clientHandler.getAssociatingWithClientChannelSelector(),
                 SelectionKey.OP_CONNECT
@@ -45,7 +51,7 @@ public class RemoteHostHandler implements InetNodeHandler, Closeable {
             this.remoteHostSocketChannel.finishConnect();
             this.isActive = true;
             logger.info("Remote host connection has finished. Change options to OP_READ...");
-            this.remoteHostSelectionKey.interestOps(SelectionKey.OP_READ); // TODO: ack?
+            this.remoteHostSelectionKey.interestOps(SelectionKey.OP_READ);
             this.associatingClientHandler.setServerResponseType(
                     Socks5MessagesExplorer.getSucceededIndicator());
             this.associatingClientHandler.informAboutResponseReadiness();
@@ -59,6 +65,10 @@ public class RemoteHostHandler implements InetNodeHandler, Closeable {
 
     private void readRemoteHostAnswer() {
         try {
+            if (isAllDataProcessed(this.responsesFromHostBuffer)) {
+                this.remoteHostSelectionKey.interestOps(NO_INTERESTED_OPTIONS);
+                return;
+            }
             int readBytesNumber = this.remoteHostSocketChannel.read(responsesFromHostBuffer);
             if (isNoDataTransferThroughChannel(readBytesNumber)) {
                 this.close();
@@ -138,7 +148,7 @@ public class RemoteHostHandler implements InetNodeHandler, Closeable {
     @Override
     public void close() {
         this.remoteHostSelectionKey.cancel();
-        Socks5ProxyServer.getInstance().removeInetNodeHandlerByItsChannel(this.remoteHostSocketChannel);
+        this.associatingProxyServer.removeInetNodeHandlerByItsChannel(this.remoteHostSocketChannel);
         try {
             this.remoteHostSocketChannel.close();
             logger.info("Remote host socket channel was closed");

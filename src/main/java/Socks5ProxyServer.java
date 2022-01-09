@@ -20,22 +20,13 @@ public class Socks5ProxyServer {
 
     private Selector eventsSelector;
 
+    private DNSResolver dnsResolver;
+
     private final Map<SelectableChannel, InetNodeHandler> inetNodeHandlersByTheirChannels = new ConcurrentHashMap<>();
-
-    private static Socks5ProxyServer instance;
-
-    private Socks5ProxyServer() {
-    }
-
-    public static synchronized Socks5ProxyServer getInstance() {
-        if (instance == null) {
-            instance = new Socks5ProxyServer();
-        }
-        return instance;
-    }
 
     public void start(int proxyPort) {
         this.proxyPort = proxyPort;
+        this.dnsResolver = new DNSResolver();
         try {
             this.configureProxyServer();
         } catch (IOException exception) {
@@ -51,7 +42,7 @@ public class Socks5ProxyServer {
         NonBlockingChannelServiceman.setNonBlock(proxyServerSocketChannel);
         proxyServerSocketChannel.bind(new InetSocketAddress(PROXY_SERVER_IPv4_ADDRESS, this.proxyPort));
         proxyServerSocketChannel.register(this.eventsSelector, SelectionKey.OP_ACCEPT);
-        DNSResolver.getInstance().startResolving(this.eventsSelector);
+        this.dnsResolver.startResolving(this.eventsSelector, this);
     }
 
     private void processClientsInLoop() {
@@ -82,7 +73,7 @@ public class Socks5ProxyServer {
 
     private void acceptNewClient(SelectionKey acceptKey) {
         try {
-            ClientHandler clientHandler = new ClientHandler(acceptKey);
+            ClientHandler clientHandler = new ClientHandler(acceptKey, this);
             this.putInetNodeHandlerByItsChannel(acceptKey.channel(), clientHandler);
         } catch (IOException exception) {
             logger.error(exception.getMessage());
@@ -95,5 +86,9 @@ public class Socks5ProxyServer {
 
     public void removeInetNodeHandlerByItsChannel(SelectableChannel channel) {
         inetNodeHandlersByTheirChannels.remove(channel);
+    }
+
+    public DNSResolver getDnsResolver() {
+        return dnsResolver;
     }
 }

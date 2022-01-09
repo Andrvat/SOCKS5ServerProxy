@@ -31,12 +31,15 @@ public class ClientHandler implements InetNodeHandler, Closeable {
     private int requiredHostPort;
     private RemoteHostHandler remoteHostHandler;
 
+    private final Socks5ProxyServer associatingProxyServer;
+
     private boolean isActive;
 
-    public ClientHandler(SelectionKey serverSocketSelectionKey) throws IOException {
+    public ClientHandler(SelectionKey serverSocketSelectionKey, Socks5ProxyServer proxyServer) throws IOException {
+        this.associatingProxyServer = proxyServer;
         this.clientSocketChannel = ((ServerSocketChannel) serverSocketSelectionKey.channel()).accept();
         NonBlockingChannelServiceman.setNonBlock(clientSocketChannel);
-        Socks5ProxyServer.getInstance().putInetNodeHandlerByItsChannel(this.clientSocketChannel, this);
+        this.associatingProxyServer.putInetNodeHandlerByItsChannel(this.clientSocketChannel, this);
         this.clientSelectionKey = clientSocketChannel.register(
                 serverSocketSelectionKey.selector(), SelectionKey.OP_READ);
         this.clientState = ClientStatement.SENDING_OPTION;
@@ -157,7 +160,7 @@ public class ClientHandler implements InetNodeHandler, Closeable {
                             .correspondingClientHandler(this)
                             .requiredRemoteHostname(requiredHostName)
                             .build();
-                    DNSResolver.getInstance().addDNSRequestToQueue(dnsRequest);
+                    this.associatingProxyServer.getDnsResolver().addDNSRequestToQueue(dnsRequest);
                     this.clientState = ClientStatement.WAITING_DNS_RESOLVER;
                     this.clientSelectionKey.interestOps(NO_INTERESTED_OPTIONS);
                 }
@@ -175,7 +178,8 @@ public class ClientHandler implements InetNodeHandler, Closeable {
         try {
             this.remoteHostHandler = new RemoteHostHandler(this,
                     this.requiredHostInetAddress,
-                    this.requiredHostPort);
+                    this.requiredHostPort,
+                    this.associatingProxyServer);
         } catch (IOException exception) {
             logger.error(exception.getMessage());
             this.close();
@@ -249,6 +253,10 @@ public class ClientHandler implements InetNodeHandler, Closeable {
             int transferBytesNumber;
             correspondingRemoteHostHandlerBuffer.flip();
             transferBytesNumber = this.clientSocketChannel.write(correspondingRemoteHostHandlerBuffer);
+            if (this.remoteHostHandler.getRemoteHostSelectionKey().isValid()) {
+                this.remoteHostHandler.getRemoteHostSelectionKey().interestOps(
+                        this.remoteHostHandler.getRemoteHostSelectionKey().interestOps() | SelectionKey.OP_READ);
+            }
             if (isNoDataTransferAcrossChannel(transferBytesNumber)) {
                 this.close();
                 return;
@@ -313,7 +321,7 @@ public class ClientHandler implements InetNodeHandler, Closeable {
     @Override
     public void close() {
         clientSelectionKey.cancel();
-        Socks5ProxyServer.getInstance().removeInetNodeHandlerByItsChannel(this.clientSocketChannel);
+        this.associatingProxyServer.removeInetNodeHandlerByItsChannel(this.clientSocketChannel);
         try {
             clientSocketChannel.close();
         } catch (IOException exception) {

@@ -9,7 +9,8 @@ public class ProxyServerStarter {
             CmdArgsParser cmdArgsParser = new CmdArgsParser();
             cmdArgsParser.parseArguments(args);
 
-            Socks5ProxyServer.getInstance().start(cmdArgsParser.getProxyServerPort());
+            Socks5ProxyServer proxyServer = new Socks5ProxyServer();
+            proxyServer.start(cmdArgsParser.getProxyServerPort());
         } catch (Exception exception) {
             logger.error(exception.getMessage());
             exception.printStackTrace();
