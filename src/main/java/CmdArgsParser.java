@@ -1,3 +1,4 @@
+import lombok.Getter;
 import org.apache.commons.cli.*;
 
 import java.util.*;
@@ -7,6 +8,7 @@ public class CmdArgsParser {
 
     private final Options cmdOptions = new Options();
 
+    @Getter
     private int proxyServerPort;
 
     public CmdArgsParser() {
@@ -34,13 +36,9 @@ public class CmdArgsParser {
 
         try {
             proxyServerPort = Integer.parseInt(commandLine.getOptionValue("p"));
-        } catch (Exception exception) {
+        } catch (Exception e) {
             proxyServerPort = DEFAULT_PROXY_SERVER_PORT;
         }
-    }
-
-    public int getProxyServerPort() {
-        return proxyServerPort;
     }
 
     @Override

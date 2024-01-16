@@ -1,3 +1,4 @@
+import lombok.Setter;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
@@ -24,6 +25,8 @@ public class ClientHandler implements InetNodeHandler, Closeable {
     private ClientStatement clientState;
 
     private byte authenticationMethod;
+
+    @Setter
     private byte serverResponseType;
 
     private String requiredHostName;
@@ -39,14 +42,15 @@ public class ClientHandler implements InetNodeHandler, Closeable {
         this.associatingProxyServer = proxyServer;
         this.clientSocketChannel = ((ServerSocketChannel) serverSocketSelectionKey.channel()).accept();
         NonBlockingChannelServiceman.setNonBlock(clientSocketChannel);
+        // ??? Duplicate?
         this.associatingProxyServer.putInetNodeHandlerByItsChannel(this.clientSocketChannel, this);
         this.clientSelectionKey = clientSocketChannel.register(
                 serverSocketSelectionKey.selector(), SelectionKey.OP_READ);
-        this.clientState = ClientStatement.SENDING_OPTION;
+        this.clientState = ClientStatement.SENDING_METHODS;
         this.isActive = true;
     }
 
-    private void readClientInitialOption() {
+    private void readClientInitialMethods() {
         ByteBuffer byteBuffer = ByteBuffer.allocate(BYTE_BUFFER_DEFAULT_CAPACITY);
         try {
             int readBytesNumber = this.clientSocketChannel.read(byteBuffer);
@@ -69,10 +73,10 @@ public class ClientHandler implements InetNodeHandler, Closeable {
             } else {
                 this.authenticationMethod = Socks5MessagesExplorer.getAuthenticationIsNotRequiredIndicator();
             }
-            this.clientState = ClientStatement.READING_SELECTED_OPTION;
+            this.clientState = ClientStatement.WAITING_SELECTED_METHOD;
             this.clientSelectionKey.interestOps(SelectionKey.OP_WRITE);
-        } catch (IOException exception) {
-            this.handleException(exception);
+        } catch (IOException e) {
+            this.handleException(e);
         }
     }
 
@@ -80,6 +84,7 @@ public class ClientHandler implements InetNodeHandler, Closeable {
         return transferBytesNumber <= 0;
     }
 
+    // TODO: is it correct logic?
     private boolean isClientRequiresAuthentication(byte[] message) {
         boolean isAuthRequires = true;
         int authMethodsNumber = Socks5MessagesExplorer.getAuthMethodsNumberFromMessage(message);
@@ -102,8 +107,8 @@ public class ClientHandler implements InetNodeHandler, Closeable {
             this.clientSocketChannel.write(message);
             this.clientState = ClientStatement.SENDING_REQUEST;
             this.clientSelectionKey.interestOps(SelectionKey.OP_READ);
-        } catch (IOException exception) {
-            this.handleException(exception);
+        } catch (IOException e) {
+            this.handleException(e);
         }
     }
 
@@ -180,8 +185,8 @@ public class ClientHandler implements InetNodeHandler, Closeable {
                     this.requiredHostInetAddress,
                     this.requiredHostPort,
                     this.associatingProxyServer);
-        } catch (IOException exception) {
-            logger.error(exception.getMessage());
+        } catch (IOException e) {
+            logger.error(e.getMessage());
             this.close();
         }
     }
@@ -198,8 +203,8 @@ public class ClientHandler implements InetNodeHandler, Closeable {
                 logger.error("Proxy server detected not succeeded response type");
                 this.close();
             }
-        } catch (IOException exception) {
-            this.handleException(exception);
+        } catch (IOException e) {
+            this.handleException(e);
         }
     }
 
@@ -271,8 +276,8 @@ public class ClientHandler implements InetNodeHandler, Closeable {
             if (!this.remoteHostHandler.isActive()) {
                 this.close();
             }
-        } catch (IOException exception) {
-            this.handleException(exception);
+        } catch (IOException e) {
+            this.handleException(e);
         }
     }
 
@@ -299,10 +304,6 @@ public class ClientHandler implements InetNodeHandler, Closeable {
         this.clientSelectionKey.interestOps(this.clientSelectionKey.interestOps() | SelectionKey.OP_WRITE);
     }
 
-    public void setServerResponseType(byte serverResponseType) {
-        this.serverResponseType = serverResponseType;
-    }
-
     public void setRequiredHostInetAddress(InetAddress requiredHostInetAddress) {
         if (this.clientState.equals(ClientStatement.WAITING_DNS_RESOLVER)) {
             if (requiredHostInetAddress == null) {
@@ -324,23 +325,21 @@ public class ClientHandler implements InetNodeHandler, Closeable {
         this.associatingProxyServer.removeInetNodeHandlerByItsChannel(this.clientSocketChannel);
         try {
             clientSocketChannel.close();
-        } catch (IOException exception) {
-            logger.error(exception.getMessage());
+        } catch (IOException e) {
+            logger.error(e.getMessage());
         }
         logger.info(this.getClass().getSimpleName() + " of " + requiredHostName + " finished");
         isActive = false;
-        if (this.remoteHostHandler != null) {
-            if (this.remoteHostHandler.isActive()) {
-                this.remoteHostHandler.close();
-            }
+        if (this.remoteHostHandler != null && this.remoteHostHandler.isActive()) {
+            this.remoteHostHandler.close();
         }
     }
 
     @Override
     public void handleEvent() {
         switch (clientState) {
-            case SENDING_OPTION -> this.readClientInitialOption();
-            case READING_SELECTED_OPTION -> this.writeSelectedMethodToClient();
+            case SENDING_METHODS -> this.readClientInitialMethods();
+            case WAITING_SELECTED_METHOD -> this.writeSelectedMethodToClient();
             case SENDING_REQUEST -> this.readClientRequestDetails();
             case READING_PROXY_ANSWER -> this.writeProxyAnswerToClient();
             case CONTINUE_STAY_CONNECT -> this.communicateWithClient();

@@ -1,3 +1,4 @@
+import lombok.Getter;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
@@ -20,6 +21,7 @@ public class Socks5ProxyServer {
 
     private Selector eventsSelector;
 
+    @Getter
     private DNSResolver dnsResolver;
 
     private final Map<SelectableChannel, InetNodeHandler> inetNodeHandlersByTheirChannels = new ConcurrentHashMap<>();
@@ -29,8 +31,8 @@ public class Socks5ProxyServer {
         this.dnsResolver = new DNSResolver();
         try {
             this.configureProxyServer();
-        } catch (IOException exception) {
-            logger.error(exception.getMessage());
+        } catch (IOException e) {
+            logger.error(e.getMessage());
             return;
         }
         this.processClientsInLoop();
@@ -52,8 +54,8 @@ public class Socks5ProxyServer {
                 this.eventsSelector.select();
                 this.processSelectedEvents(this.eventsSelector.selectedKeys().iterator());
             }
-        } catch (IOException exception) {
-            logger.error(exception.getMessage());
+        } catch (IOException e) {
+            logger.error(e.getMessage());
         }
     }
 
@@ -75,8 +77,8 @@ public class Socks5ProxyServer {
         try {
             ClientHandler clientHandler = new ClientHandler(acceptKey, this);
             this.putInetNodeHandlerByItsChannel(acceptKey.channel(), clientHandler);
-        } catch (IOException exception) {
-            logger.error(exception.getMessage());
+        } catch (IOException e) {
+            logger.error(e.getMessage());
         }
     }
 
@@ -86,9 +88,5 @@ public class Socks5ProxyServer {
 
     public void removeInetNodeHandlerByItsChannel(SelectableChannel channel) {
         inetNodeHandlersByTheirChannels.remove(channel);
-    }
-
-    public DNSResolver getDnsResolver() {
-        return dnsResolver;
     }
 }

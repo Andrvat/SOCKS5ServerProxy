@@ -55,8 +55,8 @@ public class RemoteHostHandler implements InetNodeHandler, Closeable {
             this.associatingClientHandler.setServerResponseType(
                     Socks5MessagesExplorer.getSucceededIndicator());
             this.associatingClientHandler.informAboutResponseReadiness();
-        } catch (IOException exception) {
-            logger.error(exception.getMessage());
+        } catch (IOException e) {
+            logger.error(e.getMessage());
             this.associatingClientHandler.setServerResponseType(
                     Socks5MessagesExplorer.getHostUnreachableIndicator());
             this.associatingClientHandler.informAboutResponseReadiness();
@@ -76,8 +76,8 @@ public class RemoteHostHandler implements InetNodeHandler, Closeable {
             }
             logger.info("Got {" + readBytesNumber + "} from remote host. Transfer to client...");
             this.associatingClientHandler.informAboutHostDataOccurrence();
-        } catch (IOException exception) {
-            this.handleException(exception);
+        } catch (IOException e) {
+            this.handleException(e);
         }
     }
 
@@ -96,8 +96,8 @@ public class RemoteHostHandler implements InetNodeHandler, Closeable {
             } else {
                 this.requestsToHostBuffer.compact();
             }
-        } catch (IOException exception) {
-            this.handleException(exception);
+        } catch (IOException e) {
+            this.handleException(e);
         }
     }
 

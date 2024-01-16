@@ -1,3 +1,4 @@
+import java.util.concurrent.ConcurrentLinkedQueue;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 import org.xbill.DNS.*;
@@ -28,23 +29,20 @@ public class DNSResolver implements InetNodeHandler {
     private DatagramChannel dnsResolverDatagramChannel;
     private SelectionKey dnsResolverSelectionKey;
 
-    private Queue<DNSRequest> requestsQueue;
-    private Map<Name, ClientHandler> clientHandlersDnsResponses;
+    private final Queue<DNSRequest> requestsQueue = new ConcurrentLinkedQueue<>();
+    private final Map<Name, ClientHandler> clientHandlersDnsResponses = new ConcurrentHashMap<>();
 
-    private Map<Name, CustomPair<DNSRequest, Instant>> pendingConfirmationRequests;
+    private final Map<Name, CustomPair<DNSRequest, Instant>> pendingConfirmationRequests = new ConcurrentHashMap<>();
 
     public void startResolving(Selector proxyServerSelector, Socks5ProxyServer proxyServer) throws IOException {
         InetSocketAddress dnsResolverInetSocketAddress = ResolverConfig.getCurrentConfig().server();
         this.dnsResolverDatagramChannel = DatagramChannel.open();
         this.dnsResolverDatagramChannel.socket().connect(dnsResolverInetSocketAddress);
         NonBlockingChannelServiceman.setNonBlock(dnsResolverDatagramChannel);
-        this.dnsResolverSelectionKey = this.dnsResolverDatagramChannel.
-                register(proxyServerSelector, NO_INTERESTED_OPTIONS);
+        this.dnsResolverSelectionKey = this.dnsResolverDatagramChannel
+            .register(proxyServerSelector, NO_INTERESTED_OPTIONS);
         proxyServer.putInetNodeHandlerByItsChannel(this.dnsResolverDatagramChannel, this);
-        requestsQueue = new ConcurrentLinkedDeque<>();
-        pendingConfirmationRequests = new ConcurrentHashMap<>();
-        clientHandlersDnsResponses = new ConcurrentHashMap<>();
-        logger.info("DNS Resolver has started,,,");
+        logger.info("DNS Resolver has started...");
     }
 
     public void addDNSRequestToQueue(DNSRequest request) {
@@ -96,8 +94,8 @@ public class DNSResolver implements InetNodeHandler {
                 }
             }
             correspondingClientHandler.setRequiredHostInetAddress(null);
-        } catch (IOException exception) {
-            logger.error(exception.getMessage());
+        } catch (IOException e) {
+            logger.error(e.getMessage());
         }
     }
 
@@ -110,8 +108,8 @@ public class DNSResolver implements InetNodeHandler {
         DNSRequest requestToSent;
         try {
             requestToSent = this.requestsQueue.remove();
-        } catch (NoSuchElementException exception) {
-            logger.error(exception.getMessage());
+        } catch (NoSuchElementException e) {
+            logger.error(e.getMessage());
             this.dnsResolverSelectionKey.interestOps(SelectionKey.OP_READ);
             return;
         }
@@ -137,8 +135,8 @@ public class DNSResolver implements InetNodeHandler {
             if (this.requestsQueue.isEmpty()) {
                 this.dnsResolverSelectionKey.interestOps(SelectionKey.OP_READ);
             }
-        } catch (IOException exception) {
-            logger.error(exception.getMessage());
+        } catch (IOException e) {
+            logger.error(e.getMessage());
         }
     }
 
